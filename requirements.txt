@@ -4,3 +4,4 @@ pdf2image
 watchdog
 openai
 dotenv
+gunicorn
