@@ -28,6 +28,11 @@ for m in models.data:
     print(m.id)
 
 
+@app.route("/api/ask", methods=["POST"])
+def ask():
+    return jsonify(message="Hello, response is fine!")
+
+
 @app.route('/api/convert', methods=['POST'])
 def handle_pdf_to_vision():
     if 'pdf' not in request.files:
