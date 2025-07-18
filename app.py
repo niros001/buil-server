@@ -12,7 +12,7 @@ load_dotenv()
 
 # Initialize Flask and CORS
 app = Flask(__name__)
-CORS(app, origins=["https://buil-server.onrender.com", "http://localhost:5173"], supports_credentials=True)
+CORS(app, origins=["https://buil-client.netlify.app", "http://localhost:5173"], supports_credentials=True)
 
 # Create folders
 UPLOAD_FOLDER = 'uploads'
@@ -31,11 +31,6 @@ for m in models.data:
 @app.route("/")
 def index():
     return jsonify(status="OK", message="Backend is alive")
-
-
-@app.route("/api/ask", methods=["POST"])
-def ask():
-    return jsonify(message="Hello, response is fine!")
 
 
 @app.route('/api/convert', methods=['POST'])
