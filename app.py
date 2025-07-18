@@ -12,7 +12,7 @@ load_dotenv()
 
 # Initialize Flask and CORS
 app = Flask(__name__)
-CORS(app, origins=["https://buil-server.onrender.com", "http://http://localhost:5173"], supports_credentials=True)
+CORS(app, origins=["https://buil-server.onrender.com", "http://localhost:5173"], supports_credentials=True)
 
 # Create folders
 UPLOAD_FOLDER = 'uploads'
