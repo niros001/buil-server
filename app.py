@@ -27,6 +27,7 @@ models = client.models.list()
 for m in models.data:
     print(m.id)
 
+
 @app.route('/api/convert', methods=['POST'])
 def handle_pdf_to_vision():
     if 'pdf' not in request.files:
@@ -73,7 +74,6 @@ def handle_pdf_to_vision():
             ],
             max_tokens=1500
         )
-
 
         # Extract text from response
         result_text = response.choices[0].message.content
