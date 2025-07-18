@@ -28,6 +28,11 @@ for m in models.data:
     print(m.id)
 
 
+@app.route("/")
+def index():
+    return jsonify(status="OK", message="Backend is alive")
+
+
 @app.route("/api/ask", methods=["POST"])
 def ask():
     return jsonify(message="Hello, response is fine!")
