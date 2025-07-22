@@ -1,6 +1,7 @@
 import os
 import uuid
 import base64
+import json
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from pdf2image import convert_from_path
@@ -21,7 +22,6 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # Initialize OpenAI client with API key
 openai_api_key = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=openai_api_key)
-
 
 models = client.models.list()
 for m in models.data:
@@ -57,16 +57,31 @@ def handle_pdf_to_vision():
         with open(image_path, "rb") as img_file:
             base64_image = base64.b64encode(img_file.read()).decode("utf-8")
 
+        # Get selected options from form data (as JSON string)
+        options_raw = request.form.get('options')
+        selected_options = []
+        if options_raw:
+            try:
+                selected_options = json.loads(options_raw)
+            except json.JSONDecodeError:
+                print("Warning: Failed to parse options JSON.")
+
+        # Construct prompt text
+        prompt_text = "יש פה תוכנית עבודה, אני צריך שתוציא לי את כמויות החומרים עבור אומדן."
+        if selected_options:
+            joined_options = ", ".join(selected_options)
+            prompt_text += f" תתמקד רק ב: {joined_options}."
+
         # Call OpenAI GPT-4 Vision
         response = client.chat.completions.create(
-            model="gpt-4o",  # ✅ this is your vision-enabled model
+            model="gpt-4o",
             messages=[
                 {
                     "role": "user",
                     "content": [
                         {
                             "type": "text",
-                            "text": "יש פה תוכנית עבודה, אני צריך שתוציא לי את כמויות החומרים עבור אומדן."
+                            "text": prompt_text
                         },
                         {
                             "type": "image_url",
