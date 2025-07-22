@@ -48,7 +48,7 @@ def handle_pdf_to_vision():
         pdf_file.save(pdf_path)
 
         # Convert first page of PDF to image
-        images = convert_from_path(pdf_path, dpi=100)
+        images = convert_from_path(pdf_path, dpi=200)
         if not images:
             raise Exception("PDF conversion returned no images.")
         images[0].save(image_path, 'PNG')
@@ -67,7 +67,7 @@ def handle_pdf_to_vision():
                 print("Warning: Failed to parse options JSON.")
 
         # Construct prompt text
-        prompt_text = "יש פה תוכנית עבודה, אני צריך שתוציא לי את כמויות החומרים עבור אומדן."
+        prompt_text = "יש פה תוכנית עבודה"
         if selected_options:
             joined_options = ", ".join(selected_options)
             prompt_text += f" תתמקד רק ב: {joined_options}."
@@ -81,8 +81,16 @@ def handle_pdf_to_vision():
                     "content": [
                         {
                             "type": "text",
-                            "text": prompt_text
+                            "text": 'תייצר לי קובץ pdf שמכיל טבלה עם העמודות הבאות: איזור תוכנית, תיאור, כמות, יחידת מדידה,עלות משוערת מוצר, סה"כ. תציג את המידע בטבלה לפי תוכנית העבודה בתמונה ששלחתי לך. נא להתייחס לעמודה של הכמות לאחר חישוב ובהתאם לאופני המדידה הקיימים ובהתאם ליחידות המדידה הנהוגים לכל אלמנט ואין צורך להראות את החישוב.'
                         },
+                        # {
+                        #     "type": "text",
+                        #     "text": 'תייצר לי קובץ pdf שמכיל טבלה עם העמודות הבאות: איזור תוכנית, תיאור, כמות. תציג את המידע בטבלה לפי תוכנית העבודה בתמונה ששלחתי לך. נא להתייחס לעמודה של הכמות לאחר חישוב ובהתאם לאופני המדידה הקיימים ובהתאם ליחידות המדידה הנהוגים לכל אלמנט ואין צורך להראות את החישוב.'
+                        # },
+                        # {
+                        #     "type": "text",
+                        #     "text": 'תייצר לי קובץ pdf שמכיל טבלה עם העמודות הבאות: איזור תוכנית, תיאור, כמות, יחידת מדידה,עלות משוערת מוצר, סה"כ. תציג את המידע בטבלה לפי תוכנית העבודה בתמונה ששלחתי לך. נא להתייחס לעמודה של הכמות לאחר חישוב ובהתאם לאופני המדידה הקיימים ובהתאם ליחידות המדידה הנהוגים לכל אלמנט. ותוסיף עמודה של חישוב שתראה דרך חישוב'
+                        # },
                         {
                             "type": "image_url",
                             "image_url": {
@@ -92,7 +100,7 @@ def handle_pdf_to_vision():
                     ]
                 }
             ],
-            max_tokens=1500
+            max_tokens=3000
         )
 
         # Extract text from response
