@@ -9,79 +9,106 @@ from openai import OpenAI
 from dotenv import load_dotenv
 
 
+# Load .env if present
 load_dotenv()
 
 
+# Initialize Flask and CORS
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=["https://buil-client.netlify.app", "http://localhost:5173"], supports_credentials=True)
+
+
+# Create folders
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# Initialize OpenAI client with API key
+openai_api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=openai_api_key)
 
 
-@app.route("/api/convert", methods=["POST"])
-def handle_pdf():
+@app.route("/")
+def index():
+    return jsonify(status="OK", message="Backend is alive")
+
+
+@app.route('/api/convert', methods=['POST'])
+def handle_pdf_to_vision():
     if 'pdf' not in request.files:
-        return jsonify({'columns': [], 'rows': []}), 400
+        return jsonify({'columns': [], 'rows': []})
 
     pdf_file = request.files['pdf']
-    option = request.form.get('option', 'basic')
-
     pdf_id = str(uuid.uuid4())
     pdf_path = os.path.join(UPLOAD_FOLDER, f"{pdf_id}.pdf")
-    img_path = os.path.join(UPLOAD_FOLDER, f"{pdf_id}.png")
-    pdf_file.save(pdf_path)
-
-    images = convert_from_path(pdf_path, dpi=100)
-    if not images:
-        return jsonify({'columns': [], 'rows': []}), 500
-    images[0].save(img_path, 'PNG')
-
-    with open(img_path, "rb") as img:
-        b64_image = base64.b64encode(img.read()).decode("utf-8")
-
-    prompt_by_option = {
-        "basic": "תפיק טבלה עם העמודות: איזור תוכנית, תיאור, כמות.",
-        "simple": "תפיק טבלה עם העמודות: איזור תוכנית, תיאור, כמות, יחידת מדידה.",
-        "calculated": "תפיק טבלה עם העמודות: איזור תוכנית, תיאור, כמות, יחידת מדידה, עלות משוערת ליחידה, סה\"כ."
-    }
-
-    full_prompt = (
-        "אתה עוזר מומחה להנדסה אזרחית, קריאת תוכניות וביצוע אומדנים.\n"
-        f"{prompt_by_option.get(option, prompt_by_option['basic'])} "
-        "קרא את המידע מתמונה שצורפה. החזר אך ורק JSON תקני בפורמט הבא – ללא שום הסברים, תוספות או טקסט נוסף: "
-        "{\"columns\": [\"...\"], \"rows\": [[\"...\"], [\"...\"]]}"
-    )
+    image_path = os.path.join(UPLOAD_FOLDER, f"{pdf_id}.png")
 
     try:
+        # Save PDF to disk
+        pdf_file.save(pdf_path)
+
+        # Convert first page of PDF to image (DPI 100)
+        images = convert_from_path(pdf_path, dpi=100)
+        if not images:
+            raise Exception("PDF conversion returned no images.")
+        images[0].save(image_path, 'PNG')
+
+        # Read and encode image to base64
+        with open(image_path, "rb") as img_file:
+            base64_image = base64.b64encode(img_file.read()).decode("utf-8")
+
+        # Get selected option
+        option = request.form.get("option", "basic")
+
+        # Prompt variations
+        prompt_by_option = {
+            "basic": "קרא את המידע מהתמונה והחזר טבלה בסיסית.",
+            "detailed": "נתח את התמונה והחזר טבלה מפורטת הכוללת תיאור, כמויות ומידות.",
+            "full": "נתח את תוכנית העבודה והחזר טבלה מלאה כולל כמויות, יחידות, תמחור וסיכום.",
+        }
+
+        full_prompt = (
+            f"{prompt_by_option.get(option, prompt_by_option['basic'])} "
+            "קרא את המידע מתמונה שצורפה. החזר אך ורק JSON תקני בפורמט הבא – ללא שום הסברים, תוספות או טקסט נוסף:"
+            "{\"columns\": [\"...\"], \"rows\": [[\"...\"], [\"...\"]]}"
+        )
+
+        # Call OpenAI GPT-4 Vision
         response = client.chat.completions.create(
             model="gpt-4o",
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": full_prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64_image}"}}
-                ]
-            }],
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": full_prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}}
+                    ]
+                }
+            ],
             max_tokens=3000
         )
 
         result_text = response.choices[0].message.content.strip()
 
-        if result_text.startswith("```json"):
-            result_text = result_text.strip("`\n ").replace("json", "", 1).strip()
+        # Attempt to parse as JSON
+        try:
+            result_json = json.loads(result_text)
+            columns = result_json.get("columns", [])
+            rows = result_json.get("rows", [])
+            return jsonify({"columns": columns, "rows": rows})
+        except Exception:
+            return jsonify({"columns": [], "rows": []})
 
-        parsed_json = json.loads(result_text)
+    except Exception as e:
+        print("Error:", e)
+        return jsonify({"columns": [], "rows": []})
 
-    except Exception:
-        parsed_json = {'columns': [], 'rows': []}
-
-    os.remove(pdf_path)
-    os.remove(img_path)
-
-    return jsonify(parsed_json)
+    finally:
+        if os.path.exists(pdf_path):
+            os.remove(pdf_path)
+        if os.path.exists(image_path):
+            os.remove(image_path)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     app.run(port=5000)
