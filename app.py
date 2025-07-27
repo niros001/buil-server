@@ -18,19 +18,23 @@ from reportlab.lib import colors
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app, origins=["*"])  # Accept all origins for testing
+CORS(app, origins=["*"])
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# Register Hebrew font
 pdfmetrics.registerFont(
     TTFont('Hebrew', 'fonts/NotoSansHebrew-VariableFont_wdth,wght.ttf')
 )
 
 
-# Create PDF table from GPT text
+def process_rtl(text):
+    if any('֐' <= c <= 'ת' for c in text):
+        return text[::-1]
+    return text
+
+
 def create_hebrew_table_pdf(path, text):
     doc = SimpleDocTemplate(path, pagesize=A4, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
     styles = getSampleStyleSheet()
@@ -42,11 +46,11 @@ def create_hebrew_table_pdf(path, text):
         alignment=TA_RIGHT
     )
 
-    # Parse table from markdown-like GPT text
     lines = [line.strip() for line in text.split("\n") if line.strip() and not line.startswith('|---')]
     table_data = [line.strip('|').split('|') for line in lines]
+
     formatted_data = [
-        [Paragraph(cell.strip(), hebrew_style) for cell in row]
+        [Paragraph(process_rtl(cell.strip()), hebrew_style) for cell in row]
         for row in table_data
     ]
 
@@ -83,20 +87,11 @@ def handle_pdf():
     with open(img_path, "rb") as img:
         b64_image = base64.b64encode(img.read()).decode("utf-8")
 
-    selected_option = request.form.get("option", "basic")
-
-    base_prompt = (
+    full_prompt = (
         "תייצר לי קובץ pdf שמכיל טבלה עם העמודות הבאות: איזור תוכנית, תיאור, כמות, יחידת מדידה,"
         " עלות משוערת מוצר, סה\"כ. תציג את המידע בטבלה לפי תוכנית העבודה בתמונה ששלחתי לך."
         " נא להתייחס לעמודה של הכמות לאחר חישוב ובהתאם לאופני המדידה הקיימים ובהתאם ליחידות המדידה הנהוגים."
     )
-
-    prompt_variants = {
-        "basic": " תתייחס רק לריצוף וכרגע אל תחזיר באמת pdf אלה טקסט בלבד.",
-        "simple": " אין צורך להראות את החישוב. תוריד עמודות מיותרות.",
-        "calculated": " ותוסיף עמודה של חישוב שתראה דרך חישוב."
-    }
-    full_prompt = base_prompt + prompt_variants.get(selected_option, "")
 
     response = client.chat.completions.create(
         model="gpt-4o",
@@ -111,7 +106,6 @@ def handle_pdf():
     )
     result_text = response.choices[0].message.content
 
-    # Create professional Hebrew PDF
     create_hebrew_table_pdf(output_pdf_path, result_text)
 
     os.remove(pdf_path)
