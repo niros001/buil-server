@@ -6,3 +6,4 @@ openai
 dotenv
 gunicorn
 reportlab
+python-bidi
