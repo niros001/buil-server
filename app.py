@@ -86,7 +86,7 @@ def handle_pdf_to_vision():
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": full_prompt},
+                        {"type": "text", "text": "אתה מומחה בקריאת תוכניות בתחום הבנייה בפרט אלו הבנייה בישראל. אני רוצה שתמצא לי את כמות המטר הרבוע (רצפה) בכל מוקה של התוכנית שתקבל בתמונה. תביא את המספר המדוייק ככל שניתן עם סטיית תקן מינימלית אם לא תיהיה ברירה."},
                         {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}}
                     ]
                 }
