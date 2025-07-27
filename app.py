@@ -38,7 +38,7 @@ def handle_pdf_to_vision():
         # Save PDF to disk
         pdf_file.save(pdf_path)
 
-        # Convert first page of PDF to image (DPI 100)
+        # Convert first page of PDF to image (DPI 150)
         images = convert_from_path(pdf_path, dpi=150)
         if not images:
             raise Exception("PDF conversion returned no images.")
@@ -48,45 +48,36 @@ def handle_pdf_to_vision():
         with open(image_path, "rb") as img_file:
             base64_image = base64.b64encode(img_file.read()).decode("utf-8")
 
-        # Get selected option
+        # Get selected option (currently unused, but can be expanded)
         option = request.form.get("option", "basic")
 
-        # Prompt variations
-        prompt_by_option = {
-            "basic": (
-                "אתה שמאי מומחה בקריאת תוכניות בנייה. "
-                "טבלה עם העמודות הבאות: איזור תוכנית, תיאור, כמות, יחידת מדידה, "
-                "עלות משוערת מוצר, סה\"כ. תציג את המידע בטבלה לפי תוכנית העבודה בתמונה ששלחתי לך. "
-                "נא להתייחס לעמודה של הכמות לאחר חישוב ובהתאם לאופני המדידה הקיימים "
-                "ובהתאם ליחידות המדידה הנהוגים לכל אלמנט ואין צורך להראות את החישוב."
-            ),
-            "extended": (
-                "אתה שמאי מומחה בקריאת תוכניות בנייה. "
-                "בבקשה הפק טבלה מפורטת הכוללת את העמודות: איזור תוכנית, תיאור מפורט של הפריט, "
-                "יחידת מדידה תקנית (כמו מ', מ\"ר, יח'), כמות מדויקת, מחיר משוער ליחידה, וסך כולל. "
-                "נא ודא שכל הנתונים מתואמים לתוכנית המצורפת, לפי הבנתך הוויזואלית בלבד."
-            ),
-            "engineering": (
-                "אתה שמאי מומחה בקריאת תוכניות בנייה. "
-                "בהתבסס על תוכנית העבודה המצורפת, אנא בנה טבלת כמויות הנדסית. "
-                "הטבלה תכיל את השדות הבאים: מק\"ט, תיאור רכיב, מיקום בתוכנית, יחידת מדידה, "
-                "כמות, עלות ליחידה, עלות כוללת. אל תכלול חישובים גלויים – רק את התוצאה הסופית לכל שורה."
-            )
-        }
+        # Hardcoded prompt
+        full_prompt = """
+אתה שמאי בנייה מומחה שפועל עבור מערכת מקצועית, לא בן אדם. הוזנה תמונה של תוכנית בנייה, ועליך לנתח רק את המידע הגרפי בתמונה בלבד.
 
-        full_prompt = (
-            "הנך פועל כשמאי מקצועי שיודע לקרוא תוכניות בנייה מתוך תמונות. "
-            f"{prompt_by_option.get(option, prompt_by_option['basic'])} "
-            "קרא את המידע מהתמונה המצורפת בלבד ואל תשתמש בשום ידע חיצוני. "
-            "החזר אך ורק JSON תקני בפורמט הבא – ללא שום הסברים, תוספות או טקסט נוסף: "
-            "{\"columns\": [\"...\"], \"rows\": [[\"...\"], [\"...\"]]}"
-        )
+מטרתך היחידה: להחזיר טבלה בפורמט JSON תקני בלבד, עם הנתונים שאתה מזהה מתוך התוכנית. אל תבצע ניחושים ואל תשתמש בשום ידע חיצוני – אך אל תספק הסברים, תיאורים או טקסטים מחוץ למבנה JSON.
 
-        prompt_text = (
-            "תעזור לי להבין את תוכנית העבודה שבתמונה. "
-            "תציג טבלה עם העמודות: אזור תוכנית, תיאור, כמות, יחידת מדידה, עלות משוערת מוצר, סה\"כ. "
-            "תתייחס רק לריצוף. אל תחשב בפועל – רק תבנה טבלה עם המידע שאתה מזהה."
-        )
+### דרישות פורמט JSON:
+
+{
+  "columns": ["איזור תוכנית", "תיאור", "כמות", "יחידת מדידה", "עלות משוערת מוצר", "סה\"כ"],
+  "rows": [
+    ["...", "...", "...", "...", "...", "..."],
+    ["...", "...", "...", "...", "...", "..."]
+  ]
+}
+
+הערות:
+
+- החזר אך ורק את האובייקט JSON – בלי שום טקסט לפני או אחרי.
+- במקרה שאינך מצליח לקרוא את הנתונים מהתמונה – החזר אובייקט ריק כך:
+{
+  "columns": [],
+  "rows": []
+}
+- אין לכלול שום הערות, הסברים, או טקסטים – רק JSON נקי.
+- עליך לפעול כמו מערכת אוטומטית שמחזירה מידע מובנה בלבד.
+"""
 
         # Call OpenAI GPT-4 Vision
         response = client.chat.completions.create(
@@ -95,8 +86,7 @@ def handle_pdf_to_vision():
                 {
                     "role": "user",
                     "content": [
-                        # {"type": "text", "text": full_prompt},
-                        {"type": "text", "text": prompt_text},
+                        {"type": "text", "text": full_prompt},
                         {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}}
                     ]
                 }
@@ -106,18 +96,20 @@ def handle_pdf_to_vision():
 
         result_text = response.choices[0].message.content.strip()
 
-        # NEW: print output before trying to parse
         print("GPT raw output:", result_text)
 
-        # Attempt to parse as JSON
         try:
             result_json = json.loads(result_text)
             columns = result_json.get("columns", [])
             rows = result_json.get("rows", [])
             return jsonify({"columns": columns, "rows": rows, "error": None})
         except Exception as parse_err:
-            return jsonify({"columns": [], "rows": [], "error": f"Failed to parse GPT output: {str(parse_err)}",
-                            "raw": result_text})
+            return jsonify({
+                "columns": [],
+                "rows": [],
+                "error": f"Failed to parse GPT output: {str(parse_err)}",
+                "raw": result_text
+            })
 
     except Exception as e:
         return jsonify({"columns": [], "rows": [], "error": str(e)})
