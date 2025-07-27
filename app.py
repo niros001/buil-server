@@ -82,6 +82,12 @@ def handle_pdf_to_vision():
             "{\"columns\": [\"...\"], \"rows\": [[\"...\"], [\"...\"]]}"
         )
 
+        prompt_text = (
+            "תעזור לי להבין את תוכנית העבודה שבתמונה. "
+            "תציג טבלה עם העמודות: אזור תוכנית, תיאור, כמות, יחידת מדידה, עלות משוערת מוצר, סה\"כ. "
+            "תתייחס רק לריצוף. אל תחשב בפועל – רק תבנה טבלה עם המידע שאתה מזהה."
+        )
+
         # Call OpenAI GPT-4 Vision
         response = client.chat.completions.create(
             model="gpt-4o",
@@ -89,7 +95,8 @@ def handle_pdf_to_vision():
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": full_prompt},
+                        # {"type": "text", "text": full_prompt},
+                        {"type": "text", "text": prompt_text},
                         {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}}
                     ]
                 }
