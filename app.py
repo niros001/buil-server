@@ -97,6 +97,9 @@ def handle_pdf_to_vision():
 
         result_text = response.choices[0].message.content.strip()
 
+        # NEW: print output before trying to parse
+        print("GPT raw output:", result_text)
+
         # Attempt to parse as JSON
         try:
             result_json = json.loads(result_text)
@@ -104,7 +107,8 @@ def handle_pdf_to_vision():
             rows = result_json.get("rows", [])
             return jsonify({"columns": columns, "rows": rows, "error": None})
         except Exception as parse_err:
-            return jsonify({"columns": [], "rows": [], "error": f"Failed to parse GPT output: {str(parse_err)}"})
+            return jsonify({"columns": [], "rows": [], "error": f"Failed to parse GPT output: {str(parse_err)}",
+                            "raw": result_text})
 
     except Exception as e:
         return jsonify({"columns": [], "rows": [], "error": str(e)})
