@@ -23,11 +23,20 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 openai_api_key = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=openai_api_key)
 
+models = client.models.list()
+for m in models.data:
+    print(m.id)
+
+
+@app.route("/")
+def index():
+    return jsonify(status="OK", message="Backend is alive")
+
 
 @app.route('/api/convert', methods=['POST'])
 def handle_pdf_to_vision():
     if 'pdf' not in request.files:
-        return jsonify({"columns": [], "rows": [], "error": "No PDF file provided"})
+        return jsonify({'error': 'No PDF file provided'}), 400
 
     pdf_file = request.files['pdf']
     pdf_id = str(uuid.uuid4())
@@ -38,8 +47,8 @@ def handle_pdf_to_vision():
         # Save PDF to disk
         pdf_file.save(pdf_path)
 
-        # Convert first page of PDF to image (DPI 150)
-        images = convert_from_path(pdf_path, dpi=150)
+        # Convert first page of PDF to image
+        images = convert_from_path(pdf_path, dpi=100)
         if not images:
             raise Exception("PDF conversion returned no images.")
         images[0].save(image_path, 'PNG')
@@ -48,36 +57,20 @@ def handle_pdf_to_vision():
         with open(image_path, "rb") as img_file:
             base64_image = base64.b64encode(img_file.read()).decode("utf-8")
 
-        # Get selected option (currently unused, but can be expanded)
-        option = request.form.get("option", "basic")
+        # Get selected options from form data (as JSON string)
+        options_raw = request.form.get('options')
+        selected_options = []
+        if options_raw:
+            try:
+                selected_options = json.loads(options_raw)
+            except json.JSONDecodeError:
+                print("Warning: Failed to parse options JSON.")
 
-        # Hardcoded prompt
-        full_prompt = """
-אתה שמאי בנייה מומחה שפועל עבור מערכת מקצועית, לא בן אדם. הוזנה תמונה של תוכנית בנייה, ועליך לנתח רק את המידע הגרפי בתמונה בלבד.
-
-מטרתך היחידה: להחזיר טבלה בפורמט JSON תקני בלבד, עם הנתונים שאתה מזהה מתוך התוכנית. אל תבצע ניחושים ואל תשתמש בשום ידע חיצוני – אך אל תספק הסברים, תיאורים או טקסטים מחוץ למבנה JSON.
-
-### דרישות פורמט JSON:
-
-{
-  "columns": ["איזור תוכנית", "תיאור", "כמות", "יחידת מדידה", "עלות משוערת מוצר", "סה\"כ"],
-  "rows": [
-    ["...", "...", "...", "...", "...", "..."],
-    ["...", "...", "...", "...", "...", "..."]
-  ]
-}
-
-הערות:
-
-- החזר אך ורק את האובייקט JSON – בלי שום טקסט לפני או אחרי.
-- במקרה שאינך מצליח לקרוא את הנתונים מהתמונה – החזר אובייקט ריק כך:
-{
-  "columns": [],
-  "rows": []
-}
-- אין לכלול שום הערות, הסברים, או טקסטים – רק JSON נקי.
-- עליך לפעול כמו מערכת אוטומטית שמחזירה מידע מובנה בלבד.
-"""
+        # Construct prompt text
+        prompt_text = "יש פה תוכנית עבודה"
+        if selected_options:
+            joined_options = ", ".join(selected_options)
+            prompt_text += f" תתמקד רק ב: {joined_options}."
 
         # Call OpenAI GPT-4 Vision
         response = client.chat.completions.create(
@@ -86,43 +79,34 @@ def handle_pdf_to_vision():
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": "אתה מומחה בקריאת תוכניות בתחום הבנייה בפרט אלו הבנייה בישראל. אני רוצה שתמצא לי את כמות המטר הרבוע (רצפה) בכל מוקה של התוכנית שתקבל בתמונה. תביא את המספר המדוייק ככל שניתן עם סטיית תקן מינימלית אם לא תיהיה ברירה."},
-                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}}
+                        {
+                            "type": "text",
+                            "text": 'כמה מטר מרובע של ריצוף יש בתוכנית העבודה שבתמונה'
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/png;base64,{base64_image}"
+                            }
+                        }
                     ]
                 }
             ],
             max_tokens=3000
         )
 
-        # result_text = response.choices[0].message.content.strip()
-        #
-        # print("GPT raw output:", result_text)
+        # Extract text from response
+        result_text = response.choices[0].message.content
 
-        try:
-            # Extract text from response
-            result_text = response.choices[0].message.content
+        # Clean up temp files
+        os.remove(pdf_path)
+        os.remove(image_path)
 
-            return jsonify({'result': result_text})
-            # result_json = json.loads(result_text)
-            # columns = result_json.get("columns", [])
-            # rows = result_json.get("rows", [])
-            # return jsonify({"columns": columns, "rows": rows, "error": None})
-        except Exception as parse_err:
-            return jsonify({
-                "columns": [],
-                "rows": [],
-                "error": f"Failed to parse GPT output: {str(parse_err)}",
-                "raw": result_text
-            })
+        return jsonify({'result': result_text})
 
     except Exception as e:
-        return jsonify({"columns": [], "rows": [], "error": str(e)})
-
-    finally:
-        if os.path.exists(pdf_path):
-            os.remove(pdf_path)
-        if os.path.exists(image_path):
-            os.remove(image_path)
+        print("Error:", e)
+        return jsonify({'error': str(e)}), 500
 
 
 if __name__ == '__main__':
