@@ -24,11 +24,7 @@ def handle_pdf():
         return jsonify({'error': 'Missing PDF file'}), 400
 
     pdf_file = request.files['pdf']
-
-    # 🔽 קבלת שלושת השדות מה-form
     option = request.form.get('option', 'basic')
-    element_options = request.form.get('element_options', '')
-    additional_options = request.form.get('additional_options', '')
 
     pdf_id = str(uuid.uuid4())
     pdf_path = os.path.join(UPLOAD_FOLDER, f"{pdf_id}.pdf")
@@ -44,15 +40,15 @@ def handle_pdf():
         b64_image = base64.b64encode(img.read()).decode("utf-8")
 
     prompt_by_option = {
-        "basic": "תפיק טבלה עם העמודות: איזור תוכנית, תיאור, כמות.",
-        "simple": "תפיק טבלה עם העמודות: איזור תוכנית, תיאור, כמות, יחידת מדידה.",
-        "calculated": "תפיק טבלה עם העמודות: איזור תוכנית, תיאור, כמות, יחידת מדידה, עלות משוערת ליחידה, סה\"כ."
+        "basic": "הפק טבלה עם שלוש עמודות: 'איזור תוכנית', 'תיאור', 'כמות'.",
+        "simple": "הפק טבלה עם ארבע עמודות: 'איזור תוכנית', 'תיאור', 'כמות', 'יחידת מדידה'.",
+        "calculated": "הפק טבלה עם שש עמודות: 'איזור תוכנית', 'תיאור', 'כמות', 'יחידת מדידה', 'עלות משוערת ליחידה', 'סה\"כ'."
     }
 
     full_prompt = (
         f"{prompt_by_option.get(option, prompt_by_option['basic'])} "
-        "השתמש בתמונה שצירפתי שמכילה תוכנית עבודה. החזר רק JSON בפורמט הבא: "
-        "{ \"columns\": [\"...\"], \"rows\": [[\"...\"], [\"...\"]] }"
+        "קרא את המידע מתמונה שצורפה. החזר אך ורק JSON תקני בפורמט הבא – ללא שום הסברים, תוספות או טקסט נוסף:"
+        "{\"columns\": [\"...\"], \"rows\": [[\"...\"], [\"...\"]]}"
     )
 
     response = client.chat.completions.create(
