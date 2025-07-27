@@ -1,3 +1,4 @@
+# app.py
 import os
 import uuid
 import base64
@@ -7,6 +8,9 @@ from pdf2image import convert_from_path
 from openai import OpenAI
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase import rl_config
 from dotenv import load_dotenv
 
 # Load .env if available
@@ -18,6 +22,11 @@ UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# Register Hebrew font
+rl_config.defaultEncoding = 'UTF-8'
+pdfmetrics.registerFont(TTFont('Hebrew', 'fonts/NotoSansHebrew-VariableFont_wdth,wght.ttf'))
+
 
 @app.route("/api/convert", methods=["POST"])
 def handle_pdf():
@@ -70,11 +79,12 @@ def handle_pdf():
     )
     result_text = response.choices[0].message.content
 
-    # Create output PDF from text
+    # Create output PDF from text using Hebrew font
     c = canvas.Canvas(output_pdf_path, pagesize=A4)
+    c.setFont("Hebrew", 12)
     y = 800
     for line in result_text.split('\n'):
-        c.drawString(40, y, line.strip())
+        c.drawRightString(550, y, line.strip())  # align RTL text to the right
         y -= 20
     c.save()
 
@@ -82,6 +92,7 @@ def handle_pdf():
     os.remove(img_path)
 
     return send_file(output_pdf_path, mimetype='application/pdf')
+
 
 if __name__ == "__main__":
     app.run(port=5000)
