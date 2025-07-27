@@ -24,15 +24,10 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=openai_api_key)
 
 
-@app.route("/")
-def index():
-    return jsonify(status="OK", message="Backend is alive")
-
-
 @app.route('/api/convert', methods=['POST'])
 def handle_pdf_to_vision():
     if 'pdf' not in request.files:
-        return jsonify({'columns': [], 'rows': []})
+        return jsonify({"columns": [], "rows": [], "error": "No PDF file provided"})
 
     pdf_file = request.files['pdf']
     pdf_id = str(uuid.uuid4())
@@ -59,17 +54,20 @@ def handle_pdf_to_vision():
         # Prompt variations
         prompt_by_option = {
             "basic": (
+                "אתה שמאי מומחה בקריאת תוכניות בנייה. "
                 "טבלה עם העמודות הבאות: איזור תוכנית, תיאור, כמות, יחידת מדידה, "
                 "עלות משוערת מוצר, סה\"כ. תציג את המידע בטבלה לפי תוכנית העבודה בתמונה ששלחתי לך. "
                 "נא להתייחס לעמודה של הכמות לאחר חישוב ובהתאם לאופני המדידה הקיימים "
                 "ובהתאם ליחידות המדידה הנהוגים לכל אלמנט ואין צורך להראות את החישוב."
             ),
             "extended": (
+                "אתה שמאי מומחה בקריאת תוכניות בנייה. "
                 "בבקשה הפק טבלה מפורטת הכוללת את העמודות: איזור תוכנית, תיאור מפורט של הפריט, "
                 "יחידת מדידה תקנית (כמו מ', מ\"ר, יח'), כמות מדויקת, מחיר משוער ליחידה, וסך כולל. "
                 "נא ודא שכל הנתונים מתואמים לתוכנית המצורפת, לפי הבנתך הוויזואלית בלבד."
             ),
             "engineering": (
+                "אתה שמאי מומחה בקריאת תוכניות בנייה. "
                 "בהתבסס על תוכנית העבודה המצורפת, אנא בנה טבלת כמויות הנדסית. "
                 "הטבלה תכיל את השדות הבאים: מק\"ט, תיאור רכיב, מיקום בתוכנית, יחידת מדידה, "
                 "כמות, עלות ליחידה, עלות כוללת. אל תכלול חישובים גלויים – רק את התוצאה הסופית לכל שורה."
@@ -104,13 +102,12 @@ def handle_pdf_to_vision():
             result_json = json.loads(result_text)
             columns = result_json.get("columns", [])
             rows = result_json.get("rows", [])
-            return jsonify({"columns": columns, "rows": rows})
-        except Exception:
-            return jsonify({"columns": [], "rows": []})
+            return jsonify({"columns": columns, "rows": rows, "error": None})
+        except Exception as parse_err:
+            return jsonify({"columns": [], "rows": [], "error": f"Failed to parse GPT output: {str(parse_err)}"})
 
     except Exception as e:
-        print("Error:", e)
-        return jsonify({"columns": [], "rows": []})
+        return jsonify({"columns": [], "rows": [], "error": str(e)})
 
     finally:
         if os.path.exists(pdf_path):
