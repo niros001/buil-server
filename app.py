@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app, origins=["*"])
+CORS(app)
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
@@ -24,6 +24,8 @@ def handle_pdf():
         return jsonify({'error': 'Missing PDF file'}), 400
 
     pdf_file = request.files['pdf']
+    option = request.form.get('option', 'basic')
+
     pdf_id = str(uuid.uuid4())
     pdf_path = os.path.join(UPLOAD_FOLDER, f"{pdf_id}.pdf")
     img_path = os.path.join(UPLOAD_FOLDER, f"{pdf_id}.png")
@@ -31,18 +33,22 @@ def handle_pdf():
 
     images = convert_from_path(pdf_path, dpi=100)
     if not images:
-        raise Exception("PDF conversion failed")
+        return jsonify({'error': 'PDF conversion failed'}), 500
     images[0].save(img_path, 'PNG')
 
     with open(img_path, "rb") as img:
         b64_image = base64.b64encode(img.read()).decode("utf-8")
 
+    prompt_by_option = {
+        "basic": "תפיק טבלה עם העמודות: איזור תוכנית, תיאור, כמות.",
+        "simple": "תפיק טבלה עם העמודות: איזור תוכנית, תיאור, כמות, יחידת מדידה.",
+        "calculated": "תפיק טבלה עם העמודות: איזור תוכנית, תיאור, כמות, יחידת מדידה, עלות משוערת ליחידה, סה\"כ."
+    }
+
     full_prompt = (
-        "תייצר לי טבלה בפורמט JSON במבנה הבא: ["
-        " { \"area\": \"...\", \"description\": \"...\", \"quantity\": \"...\", \"unit\": \"...\", \"unit_price\": \"...\", \"total\": \"...\" },"
-        " ... ]"
-        " תתייחס לתמונה ששלחתי לך שמכילה תוכנית עבודה."
-        " תחשב כמויות לפי הנהוג בארץ, תן תיאור מדויק, והשלם עמודות חסרות לפי הערכה."
+        f"{prompt_by_option.get(option, prompt_by_option['basic'])} "
+        "השתמש בתמונה שצירפתי שמכילה תוכנית עבודה. החזר רק JSON בפורמט הבא: "
+        "{ \"columns\": [\"...\"], \"rows\": [[\"...\"], [\"...\"]] }"
     )
 
     response = client.chat.completions.create(
@@ -60,17 +66,16 @@ def handle_pdf():
     result_text = response.choices[0].message.content.strip()
 
     try:
-        # Remove markdown syntax if needed
         if result_text.startswith("```json"):
             result_text = result_text.strip("`\n ").replace("json", "", 1).strip()
         parsed_json = json.loads(result_text)
     except Exception as e:
-        return jsonify({'error': 'Failed to parse GPT output as JSON', 'raw': result_text, 'details': str(e)}), 500
+        return jsonify({'error': 'Failed to parse GPT output', 'raw': result_text, 'details': str(e)}), 500
 
     os.remove(pdf_path)
     os.remove(img_path)
 
-    return jsonify({'data': parsed_json})
+    return jsonify(parsed_json)
 
 
 if __name__ == "__main__":
