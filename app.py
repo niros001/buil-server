@@ -24,7 +24,11 @@ def handle_pdf():
         return jsonify({'error': 'Missing PDF file'}), 400
 
     pdf_file = request.files['pdf']
+
+    # 🔽 קבלת שלושת השדות מה-form
     option = request.form.get('option', 'basic')
+    element_options = request.form.get('element_options', '')
+    additional_options = request.form.get('additional_options', '')
 
     pdf_id = str(uuid.uuid4())
     pdf_path = os.path.join(UPLOAD_FOLDER, f"{pdf_id}.pdf")
