@@ -13,6 +13,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_RIGHT
 from reportlab.lib import colors
+from bidi.algorithm import get_display
 
 # Load .env if available
 load_dotenv()
@@ -30,13 +31,18 @@ pdfmetrics.registerFont(
 
 
 def process_rtl(text):
-    if any('֐' <= c <= 'ת' for c in text):
-        return text[::-1]
-    return text
+    return get_display(text)
 
 
 def create_hebrew_table_pdf(path, text):
-    doc = SimpleDocTemplate(path, pagesize=A4, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
+    doc = SimpleDocTemplate(
+        path,
+        pagesize=A4,
+        rightMargin=40,
+        leftMargin=40,
+        topMargin=40,
+        bottomMargin=40
+    )
     styles = getSampleStyleSheet()
     hebrew_style = ParagraphStyle(
         name='Hebrew',
@@ -49,8 +55,11 @@ def create_hebrew_table_pdf(path, text):
     lines = [line.strip() for line in text.split("\n") if line.strip() and not line.startswith('|---')]
     table_data = [line.strip('|').split('|') for line in lines]
 
+    if len(table_data) > 2:
+        table_data = table_data[1:-1]
+
     formatted_data = [
-        [Paragraph(process_rtl(cell.strip()), hebrew_style) for cell in row]
+        [Paragraph(process_rtl(cell.strip()), hebrew_style) for cell in reversed(row)]
         for row in table_data
     ]
 
