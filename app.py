@@ -1,121 +1,87 @@
 import os
 import uuid
 import base64
-import json
-from flask import Flask, request, jsonify
+from flask import Flask, request, send_file, jsonify
 from flask_cors import CORS
 from pdf2image import convert_from_path
 from openai import OpenAI
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
 from dotenv import load_dotenv
 
-# Load .env if present
+# Load .env if available
 load_dotenv()
 
-# Initialize Flask and CORS
 app = Flask(__name__)
-CORS(app, origins=["https://buil-client.netlify.app", "http://localhost:5173"], supports_credentials=True)
-
-# Create folders
+CORS(app, origins=["*"])  # Accept all origins for testing
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# Initialize OpenAI client with API key
-openai_api_key = os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=openai_api_key)
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-models = client.models.list()
-for m in models.data:
-    print(m.id)
-
-
-@app.route("/")
-def index():
-    return jsonify(status="OK", message="Backend is alive")
-
-
-@app.route('/api/convert', methods=['POST'])
-def handle_pdf_to_vision():
+@app.route("/api/convert", methods=["POST"])
+def handle_pdf():
     if 'pdf' not in request.files:
-        return jsonify({'error': 'No PDF file provided'}), 400
+        return jsonify({'error': 'Missing PDF file'}), 400
 
+    # Save PDF to disk
     pdf_file = request.files['pdf']
     pdf_id = str(uuid.uuid4())
     pdf_path = os.path.join(UPLOAD_FOLDER, f"{pdf_id}.pdf")
-    image_path = os.path.join(UPLOAD_FOLDER, f"{pdf_id}.png")
+    img_path = os.path.join(UPLOAD_FOLDER, f"{pdf_id}.png")
+    output_pdf_path = os.path.join(UPLOAD_FOLDER, f"{pdf_id}_output.pdf")
+    pdf_file.save(pdf_path)
 
-    try:
-        # Save PDF to disk
-        pdf_file.save(pdf_path)
+    # Convert first page to image
+    images = convert_from_path(pdf_path, dpi=100)
+    if not images:
+        raise Exception("PDF conversion failed")
+    images[0].save(img_path, 'PNG')
 
-        # Convert first page of PDF to image
-        images = convert_from_path(pdf_path, dpi=100)
-        if not images:
-            raise Exception("PDF conversion returned no images.")
-        images[0].save(image_path, 'PNG')
+    with open(img_path, "rb") as img:
+        b64_image = base64.b64encode(img.read()).decode("utf-8")
 
-        # Read and encode image to base64
-        with open(image_path, "rb") as img_file:
-            base64_image = base64.b64encode(img_file.read()).decode("utf-8")
+    selected_option = request.form.get("option", "basic")
 
-        # Get selected options from form data (as JSON string)
-        options_raw = request.form.get('options')
-        selected_options = []
-        if options_raw:
-            try:
-                selected_options = json.loads(options_raw)
-            except json.JSONDecodeError:
-                print("Warning: Failed to parse options JSON.")
+    base_prompt = (
+        "תייצר לי קובץ pdf שמכיל טבלה עם העמודות הבאות: איזור תוכנית, תיאור, כמות, יחידת מדידה,"
+        "עלות משוערת מוצר, סה\"כ. תציג את המידע בטבלה לפי תוכנית העבודה בתמונה ששלחתי לך."
+        " נא להתייחס לעמודה של הכמות לאחר חישוב ובהתאם לאופני המדידה הקיימים ובהתאם ליחידות המדידה הנהוגים."
+    )
 
-        # Construct prompt text
-        prompt_text = "יש פה תוכנית עבודה"
-        if selected_options:
-            joined_options = ", ".join(selected_options)
-            prompt_text += f" תתמקד רק ב: {joined_options}."
+    prompt_variants = {
+        "basic": " תתייחס רק לריצוף וכרגע אל תחזיר באמת pdf אלה טקסט בלבד.",
+        "simple": " אין צורך להראות את החישוב. תוריד עמודות מיותרות.",
+        "calculated": " ותוסיף עמודה של חישוב שתראה דרך חישוב."
+    }
+    full_prompt = base_prompt + prompt_variants.get(selected_option, "")
 
-        # Call OpenAI GPT-4 Vision
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": 'תייצר לי קובץ pdf שמכיל טבלה עם העמודות הבאות: איזור תוכנית, תיאור, כמות, יחידת מדידה,עלות משוערת מוצר, סה"כ. תציג את המידע בטבלה לפי תוכנית העבודה בתמונה ששלחתי לך. נא להתייחס לעמודה של הכמות לאחר חישוב ובהתאם לאופני המדידה הקיימים ובהתאם ליחידות המדידה הנהוגים לכל אלמנט ואין צורך להראות את החישוב. תתייחס רק לריצוף וכרגע אל תחזיר באמת pdf אלה טקסט בלבד'
-                        },
-                        # {
-                        #     "type": "text",
-                        #     "text": 'תייצר לי קובץ pdf שמכיל טבלה עם העמודות הבאות: איזור תוכנית, תיאור, כמות. תציג את המידע בטבלה לפי תוכנית העבודה בתמונה ששלחתי לך. נא להתייחס לעמודה של הכמות לאחר חישוב ובהתאם לאופני המדידה הקיימים ובהתאם ליחידות המדידה הנהוגים לכל אלמנט ואין צורך להראות את החישוב.'
-                        # },
-                        # {
-                        #     "type": "text",
-                        #     "text": 'תייצר לי קובץ pdf שמכיל טבלה עם העמודות הבאות: איזור תוכנית, תיאור, כמות, יחידת מדידה,עלות משוערת מוצר, סה"כ. תציג את המידע בטבלה לפי תוכנית העבודה בתמונה ששלחתי לך. נא להתייחס לעמודה של הכמות לאחר חישוב ובהתאם לאופני המדידה הקיימים ובהתאם ליחידות המדידה הנהוגים לכל אלמנט. ותוסיף עמודה של חישוב שתראה דרך חישוב'
-                        # },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/png;base64,{base64_image}"
-                            }
-                        }
-                    ]
-                }
-            ],
-            max_tokens=3000
-        )
+    # Send to OpenAI
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": full_prompt},
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64_image}"}}
+            ]
+        }],
+        max_tokens=3000
+    )
+    result_text = response.choices[0].message.content
 
-        # Extract text from response
-        result_text = response.choices[0].message.content
+    # Create output PDF from text
+    c = canvas.Canvas(output_pdf_path, pagesize=A4)
+    y = 800
+    for line in result_text.split('\n'):
+        c.drawString(40, y, line.strip())
+        y -= 20
+    c.save()
 
-        # Clean up temp files
-        os.remove(pdf_path)
-        os.remove(image_path)
+    os.remove(pdf_path)
+    os.remove(img_path)
 
-        return jsonify({'result': result_text})
+    return send_file(output_pdf_path, mimetype='application/pdf')
 
-    except Exception as e:
-        print("Error:", e)
-        return jsonify({'error': str(e)}), 500
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run(port=5000)
