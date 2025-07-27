@@ -10,7 +10,6 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.pdfbase import rl_config
 from dotenv import load_dotenv
 
 # Load .env if available
@@ -24,8 +23,9 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Register Hebrew font
-rl_config.defaultEncoding = 'UTF-8'
-pdfmetrics.registerFont(TTFont('Hebrew', 'fonts/NotoSansHebrew-VariableFont_wdth,wght.ttf'))
+pdfmetrics.registerFont(
+    TTFont('Hebrew', 'fonts/NotoSansHebrew-VariableFont_wdth,wght.ttf')
+)
 
 
 @app.route("/api/convert", methods=["POST"])
