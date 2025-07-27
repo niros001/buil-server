@@ -39,7 +39,7 @@ def handle_pdf_to_vision():
         pdf_file.save(pdf_path)
 
         # Convert first page of PDF to image (DPI 100)
-        images = convert_from_path(pdf_path, dpi=100)
+        images = convert_from_path(pdf_path, dpi=150)
         if not images:
             raise Exception("PDF conversion returned no images.")
         images[0].save(image_path, 'PNG')
@@ -75,8 +75,10 @@ def handle_pdf_to_vision():
         }
 
         full_prompt = (
+            "הנך פועל כשמאי מקצועי שיודע לקרוא תוכניות בנייה מתוך תמונות. "
             f"{prompt_by_option.get(option, prompt_by_option['basic'])} "
-            "קרא את המידע מתמונה שצורפה. החזר אך ורק JSON תקני בפורמט הבא – ללא שום הסברים, תוספות או טקסט נוסף:"
+            "קרא את המידע מהתמונה המצורפת בלבד ואל תשתמש בשום ידע חיצוני. "
+            "החזר אך ורק JSON תקני בפורמט הבא – ללא שום הסברים, תוספות או טקסט נוסף: "
             "{\"columns\": [\"...\"], \"rows\": [[\"...\"], [\"...\"]]}"
         )
 
