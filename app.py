@@ -94,15 +94,19 @@ def handle_pdf_to_vision():
             max_tokens=3000
         )
 
-        result_text = response.choices[0].message.content.strip()
-
-        print("GPT raw output:", result_text)
+        # result_text = response.choices[0].message.content.strip()
+        #
+        # print("GPT raw output:", result_text)
 
         try:
-            result_json = json.loads(result_text)
-            columns = result_json.get("columns", [])
-            rows = result_json.get("rows", [])
-            return jsonify({"columns": columns, "rows": rows, "error": None})
+            # Extract text from response
+            result_text = response.choices[0].message.content
+
+            return jsonify({'result': result_text})
+            # result_json = json.loads(result_text)
+            # columns = result_json.get("columns", [])
+            # rows = result_json.get("rows", [])
+            # return jsonify({"columns": columns, "rows": rows, "error": None})
         except Exception as parse_err:
             return jsonify({
                 "columns": [],
