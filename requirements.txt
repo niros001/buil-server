@@ -6,3 +6,4 @@ openai
 dotenv
 gunicorn
 werkzeug
+Pillow
