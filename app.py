@@ -39,6 +39,7 @@ def handle_pdf_to_vision():
 
         # ממיר את ה-PDF לתמונה בזיכרון
         images = convert_from_bytes(pdf_bytes, dpi=150)
+        print(len(images))
         if not images:
             raise Exception("PDF conversion returned no images.")
 
