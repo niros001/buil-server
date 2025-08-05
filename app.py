@@ -1,11 +1,12 @@
+import io
+import base64
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from pdf2image import convert_from_bytes
+from PIL import Image
 from openai import OpenAI
 from dotenv import load_dotenv
-import base64
 import os
-import io
 
 load_dotenv()
 
@@ -14,6 +15,26 @@ CORS(app, origins=["https://buil-client.netlify.app", "http://localhost:5173"], 
 
 openai_api_key = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=openai_api_key)
+
+
+def pdf_to_one_long_image_base64(pdf_bytes, dpi=200, quality=95):
+    images = convert_from_bytes(pdf_bytes, dpi=dpi)
+    if not images:
+        raise Exception("PDF conversion returned no images.")
+
+    width, height = images[0].size
+    total_height = height * len(images)
+
+    combined_img = Image.new('RGB', (width, total_height), (255, 255, 255))
+
+    for i, img in enumerate(images):
+        combined_img.paste(img, (0, i * height))
+
+    img_buffer = io.BytesIO()
+    combined_img.save(img_buffer, format='JPEG', quality=quality)
+    img_buffer.seek(0)
+
+    return base64.b64encode(img_buffer.read()).decode('utf-8')
 
 
 @app.route("/")
@@ -34,22 +55,9 @@ def handle_pdf_to_vision():
     user_prompt = free_text if main_option == 'custom' else "מה המצב?? שכחתי לכתוב לך שאלה"
 
     try:
-        # קורא את התוכן של הקובץ כ-bytes
         pdf_bytes = pdf_file.read()
+        base64_image = pdf_to_one_long_image_base64(pdf_bytes, dpi=200, quality=95)
 
-        # ממיר את ה-PDF לתמונה בזיכרון
-        images = convert_from_bytes(pdf_bytes, dpi=150)
-        print(len(images))
-        if not images:
-            raise Exception("PDF conversion returned no images.")
-
-        # שמירה של התמונה הראשונה כ-JPEG בזיכרון
-        image_io = io.BytesIO()
-        images[0].save(image_io, format="JPEG", quality=85)
-        image_io.seek(0)
-        base64_image = base64.b64encode(image_io.read()).decode("utf-8")
-
-        # שליחה ל-GPT עם התמונה
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
