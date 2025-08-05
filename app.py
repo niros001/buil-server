@@ -17,8 +17,10 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=openai_api_key)
 
 
-def pdf_to_one_long_image_base64(pdf_bytes, dpi=200, quality=95):
+def pdf_to_one_long_image_base64(pdf_bytes, dpi=200):
     images = convert_from_bytes(pdf_bytes, dpi=dpi)
+    print(f"Number of images/pages in PDF: {len(images)}")  # הדפסת מספר התמונות
+
     if not images:
         raise Exception("PDF conversion returned no images.")
 
@@ -31,7 +33,7 @@ def pdf_to_one_long_image_base64(pdf_bytes, dpi=200, quality=95):
         combined_img.paste(img, (0, i * height))
 
     img_buffer = io.BytesIO()
-    combined_img.save(img_buffer, format='JPEG', quality=quality)
+    combined_img.save(img_buffer, format='PNG')  # שמירה כ-PNG
     img_buffer.seek(0)
 
     return base64.b64encode(img_buffer.read()).decode('utf-8')
@@ -56,7 +58,7 @@ def handle_pdf_to_vision():
 
     try:
         pdf_bytes = pdf_file.read()
-        base64_image = pdf_to_one_long_image_base64(pdf_bytes, dpi=200, quality=95)
+        base64_image = pdf_to_one_long_image_base64(pdf_bytes, dpi=200)
 
         response = client.chat.completions.create(
             model="gpt-4o",
@@ -67,7 +69,7 @@ def handle_pdf_to_vision():
                         {"type": "text", "text": user_prompt},
                         {
                             "type": "image_url",
-                            "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
+                            "image_url": {"url": f"data:image/png;base64,{base64_image}"}
                         }
                     ]
                 }
