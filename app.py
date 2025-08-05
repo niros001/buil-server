@@ -57,22 +57,16 @@ def handle_pdf_to_vision():
         with open(image_path, "rb") as img_file:
             base64_image = base64.b64encode(img_file.read()).decode("utf-8")
 
-        # Get selected options from form data (as JSON string)
-        options_raw = request.form.get('options')
-        selected_options = []
-        if options_raw:
-            try:
-                selected_options = json.loads(options_raw)
-            except json.JSONDecodeError:
-                print("Warning: Failed to parse options JSON.")
+        # Get selected option and free text
+        options_raw = request.form.get('main_option')
+        free_text = request.form.get('free_text')
 
-        # Construct prompt text
-        prompt_text = "יש פה תוכנית עבודה"
-        if selected_options:
-            joined_options = ", ".join(selected_options)
-            prompt_text += f" תתמקד רק ב: {joined_options}."
+        # Determine the prompt based on selected option
+        if options_raw == 'custom':
+            user_prompt = free_text or "מה המצב?? שכחתי לכתוב לך שאלה"
+        else:
+            user_prompt = "מה המצב?? שכחתי לכתוב לך שאלה"
 
-        # Call OpenAI GPT-4 Vision
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
@@ -81,8 +75,7 @@ def handle_pdf_to_vision():
                     "content": [
                         {
                             "type": "text",
-                            "text": 'אתה כמאי מומחה. אתה יודע לקרוא תוכניות בנייה ולהוציא כמויות. תוציא לי כמה מטר מרובע של ריצפה יש בתוכנית העבודה. תן לי רק מספר סופי מינימלי ללא טקסט נוסף'
-
+                            "text": user_prompt
                         },
                         {
                             "type": "image_url",
