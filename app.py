@@ -1,31 +1,19 @@
-import os
-import uuid
-import base64
-import json
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from pdf2image import convert_from_path
+from pdf2image import convert_from_bytes
 from openai import OpenAI
 from dotenv import load_dotenv
+import base64
+import os
+import io
 
-# Load .env if present
 load_dotenv()
 
-# Initialize Flask and CORS
 app = Flask(__name__)
 CORS(app, origins=["https://buil-client.netlify.app", "http://localhost:5173"], supports_credentials=True)
 
-# Create folders
-UPLOAD_FOLDER = 'uploads'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-
-# Initialize OpenAI client with API key
 openai_api_key = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=openai_api_key)
-
-models = client.models.list()
-for m in models.data:
-    print(m.id)
 
 
 @app.route("/")
@@ -39,49 +27,38 @@ def handle_pdf_to_vision():
         return jsonify({'error': 'No PDF file provided'}), 400
 
     pdf_file = request.files['pdf']
-    pdf_id = str(uuid.uuid4())
-    pdf_path = os.path.join(UPLOAD_FOLDER, f"{pdf_id}.pdf")
-    image_path = os.path.join(UPLOAD_FOLDER, f"{pdf_id}.png")
+    main_option = request.form.get('main_option')
+    free_text = request.form.get('free_text', '')
+
+    # קובע את הפרומפט לפי הבחירה
+    user_prompt = free_text if main_option == 'custom' else "מה המצב?? שכחתי לכתוב לך שאלה"
 
     try:
-        # Save PDF to disk
-        pdf_file.save(pdf_path)
+        # קורא את התוכן של הקובץ כ-bytes
+        pdf_bytes = pdf_file.read()
 
-        # Convert first page of PDF to image
-        images = convert_from_path(pdf_path, dpi=300)
+        # ממיר את ה-PDF לתמונה בזיכרון
+        images = convert_from_bytes(pdf_bytes, dpi=150)
         if not images:
             raise Exception("PDF conversion returned no images.")
-        images[0].save(image_path, 'PNG')
 
-        # Read and encode image to base64
-        with open(image_path, "rb") as img_file:
-            base64_image = base64.b64encode(img_file.read()).decode("utf-8")
+        # שמירה של התמונה הראשונה כ-JPEG בזיכרון
+        image_io = io.BytesIO()
+        images[0].save(image_io, format="JPEG", quality=85)
+        image_io.seek(0)
+        base64_image = base64.b64encode(image_io.read()).decode("utf-8")
 
-        # Get selected option and free text
-        options_raw = request.form.get('main_option')
-        free_text = request.form.get('free_text')
-
-        # Determine the prompt based on selected option
-        if options_raw == 'custom':
-            user_prompt = free_text or "מה המצב?? שכחתי לכתוב לך שאלה"
-        else:
-            user_prompt = "מה המצב?? שכחתי לכתוב לך שאלה"
-
+        # שליחה ל-GPT עם התמונה
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
                 {
                     "role": "user",
                     "content": [
-                        {
-                            "type": "text",
-                            "text": user_prompt
-                        },
+                        {"type": "text", "text": user_prompt},
                         {
                             "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/png;base64,{base64_image}"
-                            }
+                            "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
                         }
                     ]
                 }
@@ -89,13 +66,7 @@ def handle_pdf_to_vision():
             max_tokens=3000
         )
 
-        # Extract text from response
         result_text = response.choices[0].message.content
-
-        # Clean up temp files
-        os.remove(pdf_path)
-        os.remove(image_path)
-
         return jsonify({'result': result_text})
 
     except Exception as e:
