@@ -48,7 +48,7 @@ def handle_pdf_to_vision():
         pdf_file.save(pdf_path)
 
         # Convert first page of PDF to image
-        images = convert_from_path(pdf_path, dpi=100)
+        images = convert_from_path(pdf_path, dpi=300)
         if not images:
             raise Exception("PDF conversion returned no images.")
         images[0].save(image_path, 'PNG')
