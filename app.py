@@ -1,49 +1,16 @@
-import io
-import base64
+import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from pdf2image import convert_from_bytes
-from PIL import Image
 from openai import OpenAI
 from dotenv import load_dotenv
-import os
+import base64
 
 load_dotenv()
 
 app = Flask(__name__)
 CORS(app, origins=["https://buil-client.netlify.app", "http://localhost:5173"], supports_credentials=True)
 
-openai_api_key = os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=openai_api_key)
-
-
-def pdf_to_one_long_image_base64(pdf_bytes, dpi=200, img_format='PNG', quality=95):
-    images = convert_from_bytes(pdf_bytes, dpi=dpi)
-    print(f"Number of images/pages in PDF: {len(images)}")
-
-    if not images:
-        raise Exception("PDF conversion returned no images.")
-
-    width, height = images[0].size
-    total_height = height * len(images)
-
-    combined_img = Image.new('RGB', (width, total_height), (255, 255, 255))
-
-    for i, img in enumerate(images):
-        combined_img.paste(img, (0, i * height))
-
-    img_buffer = io.BytesIO()
-
-    # עבור PNG לא משתמשים ב-quality, עבור JPEG כן
-    if img_format.upper() == 'JPEG':
-        quality = max(1, min(quality, 95))  # וידוא שהערך תקין בין 1 ל-95
-        combined_img.save(img_buffer, format='JPEG', quality=quality)
-    else:
-        # ברירת מחדל PNG (Lossless)
-        combined_img.save(img_buffer, format='PNG')
-
-    img_buffer.seek(0)
-    return base64.b64encode(img_buffer.read()).decode('utf-8')
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
 @app.route("/")
@@ -57,45 +24,25 @@ def handle_pdf_to_vision():
         return jsonify({'error': 'No PDF file provided'}), 400
 
     pdf_file = request.files['pdf']
-    main_option = request.form.get('main_option')
     free_text = request.form.get('free_text', '')
-
-    # קבלת פרמטרים עם ברירות מחדל
-    dpi = request.form.get('dpi', '200')
-    img_format = request.form.get('format', 'PNG')
-    quality = request.form.get('quality', '95')
-
-    try:
-        dpi = int(dpi)
-    except ValueError:
-        dpi = 200
-
-    img_format = img_format.upper()
-    if img_format not in ['PNG', 'JPEG']:
-        img_format = 'PNG'
-
-    try:
-        quality = int(quality)
-    except ValueError:
-        quality = 95
-
-    # קובע את הפרומפט לפי הבחירה
-    user_prompt = free_text if main_option == 'custom' else "מה המצב?? שכחתי לכתוב לך שאלה"
 
     try:
         pdf_bytes = pdf_file.read()
-        base64_image = pdf_to_one_long_image_base64(pdf_bytes, dpi=dpi, img_format=img_format, quality=quality)
+        pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
+
+        user_prompt = free_text if free_text else "אנא קרא את ה-PDF וסכם עבורי את התוכן"
 
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-5",
             messages=[
                 {
                     "role": "user",
                     "content": [
                         {"type": "text", "text": user_prompt},
                         {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/{img_format.lower()};base64,{base64_image}"}
+                            "type": "file",
+                            "file_name": pdf_file.filename,
+                            "file_content_base64": pdf_base64
                         }
                     ]
                 }
