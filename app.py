@@ -17,12 +17,28 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
 # ------------------ PDF TO IMAGE UTILITIES ------------------ #
-def pdf_to_images(pdf_bytes: bytes, dpi: int = 200):
-    """Convert PDF bytes to a list of PIL images."""
+def pdf_to_images(pdf_bytes: bytes, dpi: int = 150):
+    """Convert PDF bytes to a list of PIL images, one per page."""
     images = convert_from_bytes(pdf_bytes, dpi=dpi)
     if not images:
         raise ValueError("PDF conversion returned no images.")
     return images
+
+
+def split_image_into_tiles(image: Image.Image, max_tile_size: int = 2000):
+    """
+    Splits a large image into smaller tiles (max_tile_size x max_tile_size) to reduce memory usage.
+    Returns a list of PIL Image tiles.
+    """
+    tiles = []
+    w, h = image.size
+    for top in range(0, h, max_tile_size):
+        for left in range(0, w, max_tile_size):
+            right = min(left + max_tile_size, w)
+            bottom = min(top + max_tile_size, h)
+            tile = image.crop((left, top, right, bottom))
+            tiles.append(tile)
+    return tiles
 
 
 def image_to_base64(image: Image.Image, img_format: str = "PNG", quality: int = 95) -> str:
@@ -38,25 +54,27 @@ def image_to_base64(image: Image.Image, img_format: str = "PNG", quality: int = 
     return base64.b64encode(img_buffer.read()).decode("utf-8")
 
 
-def pdf_to_base64_images(pdf_bytes: bytes, dpi: int = 200, img_format: str = "PNG", quality: int = 95):
+def pdf_to_base64_tiles(pdf_bytes: bytes, dpi: int = 150, img_format: str = "PNG", quality: int = 95, max_tile_size: int = 2000):
     """
-    Convert each page of a PDF into a base64-encoded image string.
-    Handles large pages safely by resizing if needed.
+    Converts a PDF to base64 images, splitting large pages into smaller tiles.
+    Returns a list of base64 images.
     """
     pil_images = pdf_to_images(pdf_bytes, dpi=dpi)
-    base64_pages = []
+    base64_images = []
 
-    for idx, img in enumerate(pil_images):
-        # Resize very large images to prevent out-of-memory errors
-        max_dim = 4000  # max width or height
+    for page_idx, img in enumerate(pil_images):
+        # Resize very large pages to avoid extreme memory usage
+        max_dim = 4000
         if img.width > max_dim or img.height > max_dim:
             ratio = min(max_dim / img.width, max_dim / img.height)
-            new_size = (int(img.width * ratio), int(img.height * ratio))
-            img = img.resize(new_size, Image.LANCZOS)
+            img = img.resize((int(img.width * ratio), int(img.height * ratio)), Image.LANCZOS)
 
-        base64_pages.append(image_to_base64(img, img_format=img_format, quality=quality))
+        # Split large pages into tiles
+        tiles = split_image_into_tiles(img, max_tile_size=max_tile_size)
+        for tile_idx, tile in enumerate(tiles):
+            base64_images.append(image_to_base64(tile, img_format=img_format, quality=quality))
 
-    return base64_pages
+    return base64_images
 
 
 # ------------------ FLASK ROUTES ------------------ #
@@ -74,12 +92,11 @@ def handle_pdf_to_gpt5():
     free_text = request.form.get("free_text", "")
     try:
         pdf_bytes = pdf_file.read()
-        base64_pages = pdf_to_base64_images(pdf_bytes, dpi=200)
+        base64_tiles = pdf_to_base64_tiles(pdf_bytes, dpi=150, max_tile_size=2000)
 
-        # Prepare GPT-5 Vision requests for all pages
         results = []
-        for idx, b64_img in enumerate(base64_pages):
-            prompt_text = free_text if free_text else f"Please read the blueprint on page {idx+1} and summarize quantities."
+        for idx, b64_img in enumerate(base64_tiles):
+            prompt_text = free_text if free_text else f"Please read blueprint tile {idx+1} and extract quantities."
 
             response = client.chat.completions.create(
                 model="gpt-5",
@@ -92,11 +109,11 @@ def handle_pdf_to_gpt5():
                         ]
                     }
                 ],
-                max_completion_tokens=3000  # recommended for large outputs
+                max_completion_tokens=3000
             )
             results.append(response.choices[0].message.content)
 
-        return jsonify({"pages": results})
+        return jsonify({"tiles": results})
 
     except Exception as e:
         print("Error:", e)
