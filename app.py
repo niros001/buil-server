@@ -13,103 +13,95 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app, origins=["https://buil-client.netlify.app", "http://localhost:5173"], supports_credentials=True)
 
-openai_api_key = os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=openai_api_key)
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
-def pdf_to_one_long_image_base64(pdf_bytes, dpi=200, img_format='PNG', quality=95):
+# ------------------ PDF TO IMAGE UTILITIES ------------------ #
+def pdf_to_images(pdf_bytes: bytes, dpi: int = 200):
+    """Convert PDF bytes to a list of PIL images."""
     images = convert_from_bytes(pdf_bytes, dpi=dpi)
-    print(f"Number of images/pages in PDF: {len(images)}")
-
     if not images:
-        raise Exception("PDF conversion returned no images.")
+        raise ValueError("PDF conversion returned no images.")
+    return images
 
-    width, height = images[0].size
-    total_height = height * len(images)
 
-    combined_img = Image.new('RGB', (width, total_height), (255, 255, 255))
-
-    for i, img in enumerate(images):
-        combined_img.paste(img, (0, i * height))
-
+def image_to_base64(image: Image.Image, img_format: str = "PNG", quality: int = 95) -> str:
+    """Convert a PIL Image to a base64 string."""
     img_buffer = io.BytesIO()
-
-    # עבור PNG לא משתמשים ב-quality, עבור JPEG כן
-    if img_format.upper() == 'JPEG':
-        quality = max(1, min(quality, 95))  # וידוא שהערך תקין בין 1 ל-95
-        combined_img.save(img_buffer, format='JPEG', quality=quality)
+    img_format_upper = img_format.upper()
+    if img_format_upper == "JPEG":
+        quality = max(1, min(quality, 95))
+        image.save(img_buffer, format="JPEG", quality=quality)
     else:
-        # ברירת מחדל PNG (Lossless)
-        combined_img.save(img_buffer, format='PNG')
-
+        image.save(img_buffer, format="PNG")
     img_buffer.seek(0)
-    return base64.b64encode(img_buffer.read()).decode('utf-8')
+    return base64.b64encode(img_buffer.read()).decode("utf-8")
 
 
+def pdf_to_base64_images(pdf_bytes: bytes, dpi: int = 200, img_format: str = "PNG", quality: int = 95):
+    """
+    Convert each page of a PDF into a base64-encoded image string.
+    Handles large pages safely by resizing if needed.
+    """
+    pil_images = pdf_to_images(pdf_bytes, dpi=dpi)
+    base64_pages = []
+
+    for idx, img in enumerate(pil_images):
+        # Resize very large images to prevent out-of-memory errors
+        max_dim = 4000  # max width or height
+        if img.width > max_dim or img.height > max_dim:
+            ratio = min(max_dim / img.width, max_dim / img.height)
+            new_size = (int(img.width * ratio), int(img.height * ratio))
+            img = img.resize(new_size, Image.LANCZOS)
+
+        base64_pages.append(image_to_base64(img, img_format=img_format, quality=quality))
+
+    return base64_pages
+
+
+# ------------------ FLASK ROUTES ------------------ #
 @app.route("/")
 def index():
     return jsonify(status="OK", message="Backend is alive")
 
 
-@app.route('/api/convert', methods=['POST'])
-def handle_pdf_to_vision():
-    if 'pdf' not in request.files:
-        return jsonify({'error': 'No PDF file provided'}), 400
+@app.route("/api/convert", methods=["POST"])
+def handle_pdf_to_gpt5():
+    if "pdf" not in request.files:
+        return jsonify({"error": "No PDF file provided"}), 400
 
-    pdf_file = request.files['pdf']
-    main_option = request.form.get('main_option')
-    free_text = request.form.get('free_text', '')
-
-    # קבלת פרמטרים עם ברירות מחדל
-    dpi = request.form.get('dpi', '200')
-    img_format = request.form.get('format', 'PNG')
-    quality = request.form.get('quality', '95')
-
-    try:
-        dpi = int(dpi)
-    except ValueError:
-        dpi = 200
-
-    img_format = img_format.upper()
-    if img_format not in ['PNG', 'JPEG']:
-        img_format = 'PNG'
-
-    try:
-        quality = int(quality)
-    except ValueError:
-        quality = 95
-
-    # קובע את הפרומפט לפי הבחירה
-    user_prompt = free_text if main_option == 'custom' else "מה המצב?? שכחתי לכתוב לך שאלה"
-
+    pdf_file = request.files["pdf"]
+    free_text = request.form.get("free_text", "")
     try:
         pdf_bytes = pdf_file.read()
-        base64_image = pdf_to_one_long_image_base64(pdf_bytes, dpi=dpi, img_format=img_format, quality=quality)
+        base64_pages = pdf_to_base64_images(pdf_bytes, dpi=200)
 
-        response = client.chat.completions.create(
-            model="gpt-5",
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": user_prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/{img_format.lower()};base64,{base64_image}"}
-                        }
-                    ]
-                }
-            ],
-            max_completion_tokens=5000
-        )
+        # Prepare GPT-5 Vision requests for all pages
+        results = []
+        for idx, b64_img in enumerate(base64_pages):
+            prompt_text = free_text if free_text else f"Please read the blueprint on page {idx+1} and summarize quantities."
 
-        result_text = response.choices[0].message.content
-        return jsonify({'result': result_text})
+            response = client.chat.completions.create(
+                model="gpt-5",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt_text},
+                            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64_img}"}}
+                        ]
+                    }
+                ],
+                max_completion_tokens=3000  # recommended for large outputs
+            )
+            results.append(response.choices[0].message.content)
+
+        return jsonify({"pages": results})
 
     except Exception as e:
         print("Error:", e)
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run(port=5000)
