@@ -3,7 +3,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from openai import OpenAI
 from dotenv import load_dotenv
-import base64
+from PyPDF2 import PdfReader
 
 load_dotenv()
 
@@ -19,7 +19,7 @@ def index():
 
 
 @app.route('/api/convert', methods=['POST'])
-def handle_pdf_to_vision():
+def handle_pdf_to_gpt5():
     if 'pdf' not in request.files:
         return jsonify({'error': 'No PDF file provided'}), 400
 
@@ -27,24 +27,25 @@ def handle_pdf_to_vision():
     free_text = request.form.get('free_text', '')
 
     try:
-        pdf_bytes = pdf_file.read()
-        pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
+        # Read PDF and extract text
+        pdf_reader = PdfReader(pdf_file)
+        pdf_text = ""
+        for page in pdf_reader.pages:
+            pdf_text += page.extract_text() + "\n"
 
+        if not pdf_text.strip():
+            return jsonify({'error': 'PDF contains no extractable text'}), 400
+
+        # User prompt
         user_prompt = free_text if free_text else "אנא קרא את ה-PDF וסכם עבורי את התוכן"
 
+        # Send to GPT-5
         response = client.chat.completions.create(
             model="gpt-5",
             messages=[
                 {
                     "role": "user",
-                    "content": [
-                        {"type": "text", "text": user_prompt},
-                        {
-                            "type": "file",
-                            "file_name": pdf_file.filename,
-                            "file_content_base64": pdf_base64
-                        }
-                    ]
+                    "content": f"{user_prompt}\n\nPDF CONTENT START:\n{pdf_text}\nPDF CONTENT END"
                 }
             ],
             max_tokens=3000
