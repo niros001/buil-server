@@ -100,7 +100,7 @@ def handle_pdf_to_vision():
                     ]
                 }
             ],
-            max_tokens=3000
+            max_completion_tokens=5000
         )
 
         result_text = response.choices[0].message.content
