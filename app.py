@@ -32,9 +32,9 @@ def handle_pdf_to_vision():
     user_prompt = free_text if main_option == 'custom' else "נתח את תוכנית הבנייה ותן כמויות חומרים"
 
     try:
-        # מעלים את הקובץ לשרת של OpenAI
+        # מעלים את הקובץ ל־OpenAI (צריך לשלוח כ-tuple: (שם קובץ, IO[bytes]))
         uploaded_file = client.files.create(
-            file=pdf_file,
+            file=(pdf_file.filename, pdf_file.stream),
             purpose="assistants"
         )
 
