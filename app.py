@@ -1,11 +1,13 @@
 import os
 import tempfile
+import io
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from openai import OpenAI
+from pdf2image import convert_from_bytes
+import pytesseract
 from dotenv import load_dotenv
+from openai import OpenAI
 
-# טוען משתני סביבה
 load_dotenv()
 
 app = Flask(__name__)
@@ -23,69 +25,66 @@ def index():
     return jsonify(status="OK", message="Backend is alive")
 
 
-@app.route('/api/convert', methods=['POST'])
-def handle_pdf_to_ai():
-    if 'pdf' not in request.files:
-        return jsonify({'error': 'No PDF file provided'}), 400
+@app.route("/api/pdf-to-text", methods=["POST"])
+def pdf_to_text():
+    if "pdf" not in request.files:
+        return jsonify({"error": "No PDF file provided"}), 400
 
-    pdf_file = request.files['pdf']
-    main_option = request.form.get('main_option')
-    free_text = request.form.get('free_text', '')
-
-    # ברירת מחדל אם המשתמש לא כתב שאלה
-    user_prompt = free_text if main_option == 'custom' else \
-        "קרא את התוכנית ופרט כמויות חומרים (ברזל, בטון, עץ)."
+    pdf_file = request.files["pdf"]
 
     try:
-        # שומר זמנית את ה-PDF
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-            pdf_path = tmp.name
-            pdf_file.save(pdf_path)
+        # המרת PDF לתמונות
+        images = convert_from_bytes(pdf_file.read())
+        extracted_text = ""
 
-        # מעלה את הקובץ ל-OpenAI
-        uploaded_file = client.files.create(
-            file=open(pdf_path, "rb"),
-            purpose="assistants"
-        )
+        for i, img in enumerate(images):
+            text = pytesseract.image_to_string(img, lang="heb+eng")  # זיהוי עברית + אנגלית
+            extracted_text += f"\n\n--- Page {i+1} ---\n{text}"
 
-        # יוצר Assistant (רק בפעם הראשונה, אפשר לשמור assistant_id לשימוש חוזר)
-        assistant = client.beta.assistants.create(
-            name="Construction Plan Analyzer",
-            model="gpt-4o",
-            tools=[{"type": "file_search"}]
-        )
-
-        # יוצר Thread עם ההודעה + מצרף את הקובץ
-        thread = client.beta.threads.create(
-            messages=[
-                {
-                    "role": "user",
-                    "content": user_prompt,
-                    "attachments": [
-                        {"file_id": uploaded_file.id, "tools": [{"type": "file_search"}]}
-                    ]
-                }
-            ]
-        )
-
-        # מריץ את ה-Assistant על ה-Thread
-        run = client.beta.threads.runs.create_and_poll(
-            thread_id=thread.id,
-            assistant_id=assistant.id
-        )
-
-        # קורא את התשובה
-        messages = list(client.beta.threads.messages.list(thread_id=thread.id))
-        answer = messages[0].content[0].text.value if messages else "אין תשובה"
-
-        os.remove(pdf_path)  # מנקה את הקובץ הזמני
-
-        return jsonify({'result': answer})
+        return jsonify({"text": extracted_text})
 
     except Exception as e:
         print("Error:", e)
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
 
-if __name__ == '__main__':
+@app.route("/api/pdf-to-gpt", methods=["POST"])
+def pdf_to_gpt():
+    if "pdf" not in request.files:
+        return jsonify({"error": "No PDF file provided"}), 400
+
+    pdf_file = request.files["pdf"]
+    user_prompt = request.form.get(
+        "free_text",
+        "חשב לי את כמויות הברזל לפי התוכנית שה-PDF מצרף."
+    )
+
+    try:
+        # המרת PDF לתמונות
+        images = convert_from_bytes(pdf_file.read())
+        extracted_text = ""
+        for img in images:
+            text = pytesseract.image_to_string(img, lang="heb+eng")
+            extracted_text += f"\n{text}"
+
+        print(extracted_text)
+        # שולח את הטקסט ל-GPT
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "user", "content": f"{user_prompt}\n\n{extracted_text}"}
+            ],
+            max_completion_tokens=3000
+        )
+
+        result_text = response.choices[0].message.content
+
+        return jsonify({"result": result_text})
+
+    except Exception as e:
+        print("Error:", e)
+        return jsonify({"error": str(e)}), 500
+
+
+if __name__ == "__main__":
     app.run(port=5000)
