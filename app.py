@@ -51,7 +51,7 @@ def handle_pdf_to_ai():
         # יוצר Assistant (רק בפעם הראשונה, אפשר לשמור assistant_id לשימוש חוזר)
         assistant = client.beta.assistants.create(
             name="Construction Plan Analyzer",
-            model="gpt-5",
+            model="gpt-4o",
             tools=[{"type": "file_search"}]
         )
 
