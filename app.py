@@ -1,14 +1,17 @@
-import io
+import os
+import tempfile
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from openai import OpenAI
 from dotenv import load_dotenv
-import os
 
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app, origins=["https://buil-client.netlify.app", "http://localhost:5173"], supports_credentials=True)
+CORS(app, origins=[
+    "https://buil-client.netlify.app",
+    "http://localhost:5173"
+], supports_credentials=True)
 
 openai_api_key = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=openai_api_key)
@@ -20,7 +23,7 @@ def index():
 
 
 @app.route('/api/convert', methods=['POST'])
-def handle_pdf_to_vision():
+def handle_pdf_to_ai():
     if 'pdf' not in request.files:
         return jsonify({'error': 'No PDF file provided'}), 400
 
@@ -29,16 +32,21 @@ def handle_pdf_to_vision():
     free_text = request.form.get('free_text', '')
 
     # קובע את הפרומפט לפי הבחירה
-    user_prompt = free_text if main_option == 'custom' else "נתח את תוכנית הבנייה ותן כמויות חומרים"
+    user_prompt = free_text if main_option == 'custom' else "קרא את התוכנית ופרט לי כמויות חומרים (למשל ברזל, בטון, עץ וכו')."
 
     try:
-        # מעלים את הקובץ ל־OpenAI (צריך לשלוח כ-tuple: (שם קובץ, IO[bytes]))
+        # שמירה זמנית של ה-PDF
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            pdf_path = tmp.name
+            pdf_file.save(pdf_path)
+
+        # העלאת ה-PDF ל־OpenAI Files
         uploaded_file = client.files.create(
-            file=(pdf_file.filename, pdf_file.stream),
+            file=open(pdf_path, "rb"),
             purpose="assistants"
         )
 
-        # שולחים בקשה ל־GPT-5 עם ה־file_id
+        # שליחת בקשה ל־GPT-5 עם הקובץ
         response = client.chat.completions.create(
             model="gpt-5",
             messages=[
@@ -46,14 +54,18 @@ def handle_pdf_to_vision():
                     "role": "user",
                     "content": [
                         {"type": "text", "text": user_prompt},
-                        {"type": "file", "file": {"file_id": uploaded_file.id}}
+                        {"type": "file", "file_id": uploaded_file.id}
                     ]
                 }
             ],
-            max_completion_tokens=5000
+            max_completion_tokens=4000
         )
 
         result_text = response.choices[0].message.content
+
+        # ניקוי הקובץ מהשרת
+        os.remove(pdf_path)
+
         return jsonify({'result': result_text})
 
     except Exception as e:
