@@ -5,6 +5,7 @@ from flask_cors import CORS
 from openai import OpenAI
 from dotenv import load_dotenv
 
+# טוען משתני סביבה
 load_dotenv()
 
 app = Flask(__name__)
@@ -31,42 +32,55 @@ def handle_pdf_to_ai():
     main_option = request.form.get('main_option')
     free_text = request.form.get('free_text', '')
 
-    # קובע את הפרומפט לפי הבחירה
-    user_prompt = free_text if main_option == 'custom' else "קרא את התוכנית ופרט לי כמויות חומרים (למשל ברזל, בטון, עץ וכו')."
+    # ברירת מחדל אם המשתמש לא כתב שאלה
+    user_prompt = free_text if main_option == 'custom' else \
+        "קרא את התוכנית ופרט כמויות חומרים (ברזל, בטון, עץ)."
 
     try:
-        # שמירה זמנית של ה-PDF
+        # שומר זמנית את ה-PDF
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
             pdf_path = tmp.name
             pdf_file.save(pdf_path)
 
-        # העלאת ה-PDF ל־OpenAI Files
+        # מעלה את הקובץ ל-OpenAI
         uploaded_file = client.files.create(
             file=open(pdf_path, "rb"),
             purpose="assistants"
         )
 
-        # שליחת בקשה ל־GPT-5 עם הקובץ
-        response = client.chat.completions.create(
+        # יוצר Assistant (רק בפעם הראשונה, אפשר לשמור assistant_id לשימוש חוזר)
+        assistant = client.beta.assistants.create(
+            name="Construction Plan Analyzer",
             model="gpt-5",
+            tools=[{"type": "file_search"}]
+        )
+
+        # יוצר Thread עם ההודעה + מצרף את הקובץ
+        thread = client.beta.threads.create(
             messages=[
                 {
                     "role": "user",
-                    "content": [
-                        {"type": "text", "text": user_prompt},
-                        {"type": "file", "file_id": uploaded_file.id}
+                    "content": user_prompt,
+                    "attachments": [
+                        {"file_id": uploaded_file.id, "tools": [{"type": "file_search"}]}
                     ]
                 }
-            ],
-            max_completion_tokens=4000
+            ]
         )
 
-        result_text = response.choices[0].message.content
+        # מריץ את ה-Assistant על ה-Thread
+        run = client.beta.threads.runs.create_and_poll(
+            thread_id=thread.id,
+            assistant_id=assistant.id
+        )
 
-        # ניקוי הקובץ מהשרת
-        os.remove(pdf_path)
+        # קורא את התשובה
+        messages = list(client.beta.threads.messages.list(thread_id=thread.id))
+        answer = messages[0].content[0].text.value if messages else "אין תשובה"
 
-        return jsonify({'result': result_text})
+        os.remove(pdf_path)  # מנקה את הקובץ הזמני
+
+        return jsonify({'result': answer})
 
     except Exception as e:
         print("Error:", e)
