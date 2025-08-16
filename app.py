@@ -1,5 +1,4 @@
 import os
-import tempfile
 import io
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -25,54 +24,34 @@ def index():
     return jsonify(status="OK", message="Backend is alive")
 
 
-@app.route("/api/pdf-to-text", methods=["POST"])
-def pdf_to_text():
+@app.route("/api/convert", methods=["POST"])
+def convert():
     if "pdf" not in request.files:
         return jsonify({"error": "No PDF file provided"}), 400
 
     pdf_file = request.files["pdf"]
-
-    try:
-        # המרת PDF לתמונות
-        images = convert_from_bytes(pdf_file.read())
-        extracted_text = ""
-
-        for i, img in enumerate(images):
-            text = pytesseract.image_to_string(img, lang="heb+eng")  # זיהוי עברית + אנגלית
-            extracted_text += f"\n\n--- Page {i+1} ---\n{text}"
-
-        return jsonify({"text": extracted_text})
-
-    except Exception as e:
-        print("Error:", e)
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/pdf-to-gpt", methods=["POST"])
-def pdf_to_gpt():
-    if "pdf" not in request.files:
-        return jsonify({"error": "No PDF file provided"}), 400
-
-    pdf_file = request.files["pdf"]
-    user_prompt = request.form.get(
+    main_option = request.form.get("main_option")
+    free_text = request.form.get(
         "free_text",
         "חשב לי את כמויות הברזל לפי התוכנית שה-PDF מצרף."
     )
 
     try:
-        # המרת PDF לתמונות
-        images = convert_from_bytes(pdf_file.read())
+        # המרת PDF לתמונות עמוד עמוד
+        pdf_bytes = pdf_file.read()
+        images = convert_from_bytes(pdf_bytes, dpi=150)  # DPI נמוך יותר לחיסכון בזיכרון
         extracted_text = ""
-        for img in images:
-            text = pytesseract.image_to_string(img, lang="heb+eng")
-            extracted_text += f"\n{text}"
 
-        print(extracted_text)
+        for i, img in enumerate(images):
+            # OCR עמוד אחד בכל פעם
+            text = pytesseract.image_to_string(img, lang="heb+eng")
+            extracted_text += f"\n\n--- Page {i+1} ---\n{text}"
+
         # שולח את הטקסט ל-GPT
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "user", "content": f"{user_prompt}\n\n{extracted_text}"}
+                {"role": "user", "content": f"{free_text}\n\n{extracted_text}"}
             ],
             max_completion_tokens=3000
         )
